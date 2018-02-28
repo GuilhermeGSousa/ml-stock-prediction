@@ -10,7 +10,7 @@ class GdaxClient:
     
     def __init__(self):
         self.public_client = gdax.PublicClient()
-        self.max_dataframe_size = 350
+        self.max_dataframe_size = 300
         self.req_per_sec = 2
         
     def get_historical_data(self, begin, end, granularity = 900, pair = 'ETH-USD'):
@@ -29,10 +29,11 @@ class GdaxClient:
                 df.time = pd.to_datetime(df['time'], unit='s')
                 df=df.iloc[::-1].reset_index(drop=True)
                 df_year = df_year.append(df)
-            if(current_time + dt > end):
-                current_time = end - dt #Added to finish precisely on the end date
-            else:
-                current_time += dt
+            if(current_time + dt < end):
+                current_time += dt #Added to finish precisely on the end date
+            elif(current_time + dt >= end):
+                current_time = end
             time.sleep(1/self.req_per_sec)
             print(current_time)
+        df_year = df_year.reset_index(drop=True)
         return df_year
