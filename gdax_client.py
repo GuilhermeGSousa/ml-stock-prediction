@@ -17,9 +17,14 @@ class GdaxClient:
         """
         Use UTC time
         """
+        
+        if(end > datetime.datetime.utcnow()):
+            raise ValueError("End date can't be set in the future")
+        
         dt = datetime.timedelta(minutes=granularity/60 * self.max_dataframe_size)
         current_time = begin
         df_year = pd.DataFrame()
+        
         # These transformations must be done due to limitations of the gdax api
         # If the time is not rounded down to the nearest granularity value,
         # the api returns more data than needed (eg. 351 rows for a difference between end and start of the granularity)
@@ -39,7 +44,7 @@ class GdaxClient:
                                                       end = end, 
                                                       granularity=granularity)
                 current_time = end
-            if(data):
+            if(data and not isinstance(data,dict)):
                 df = pd.DataFrame(data, columns=['time','low','high','open', 'close', 'volume'])
                 df.time = pd.to_datetime(df['time'], unit='s')
                 df=df.iloc[::-1].reset_index(drop=True)
