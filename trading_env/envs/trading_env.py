@@ -4,6 +4,7 @@ from gym.utils import seeding
 
 from gdax_client import GdaxClient 
 
+import numpy as np
 
 class TradingEnv(gym.Env):
 
@@ -11,12 +12,9 @@ class TradingEnv(gym.Env):
     
     def __init__(self):
         self.client = GdaxClient()
-        self.action_state = spaces.Box(-1,1)
+        self.action_state = spaces.Box(low = -1.0, high = 1.0, shape = (1,))
         # TODO decide observation dimensions, do on ETH-EUR historical data
-        
-    def _configure(self, display=None):
-        pass
-    
+        self.observation_space = None 
     def _seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
