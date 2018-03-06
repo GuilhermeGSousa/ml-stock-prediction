@@ -51,9 +51,14 @@ class GdaxClient:
                 df_year = df_year.append(df)
 
             time.sleep(1/self.req_per_sec)
-            print(current_time)
         df_year = df_year.reset_index(drop=True)
         return df_year
+    
+    def get_market_price(self):
+        public_client = gdax.PublicClient()
+        data = public_client.get_product_historic_rates('ETH-EUR', granularity=60)
+        df = pd.DataFrame(data, columns=['time','low','high','open', 'close', 'volume'])
+        return df["close"][0]
     
     def _round_time(self, dt, granularity):
         rounded_time = datetime.datetime(dt.year, dt.month, dt.day, dt.hour,
