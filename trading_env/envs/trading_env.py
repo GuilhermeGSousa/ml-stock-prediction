@@ -5,6 +5,8 @@ from gym.utils import seeding
 from gdax_client import GdaxClient 
 
 import numpy as np
+import pandas as pd
+from random import randint
 
 import datetime
 
@@ -14,15 +16,15 @@ class TradingEnv(gym.Env):
     
     def __init__(self):
         self.client = GdaxClient()
-        # TODO Make this configurable
-        self.episode_steps = 10 #TODO Set this up
         self.portfolio_value = 0
         self.fiat = 0
         self.crypto = 1
         self.window_size = 100
         self.n_features = 2
+        self.granularity = 900
+        # self.episode_steps = 3600/granularity * 24 * 30 #One month episodes
         
-        self.action_state = spaces.Box(low = -1.0, 
+        self.action_space = spaces.Box(low = -1.0, 
                                        high = 1.0, 
                                        shape = (1,), 
                                        dtype = np.float32)
@@ -55,5 +57,87 @@ class TradingEnv(gym.Env):
     
     def _get_portfolio_value(self):
         current_price = self.client.get_market_price()
+        value = self.fiat + self.crypto * current_price
+        return value
+    
+    
+class TestTradingEnv(gym.Env):
+
+    metadata = {'render.modes': ['human']}
+    
+    def __init__(self):
+        self.client = GdaxClient()
+        # TODO Make this configurable
+        self.portfolio_value = 0
+        self.start_fiat = 0
+        self.start_crypto = 1
+        self.fiat = self.start_fiat
+        self.crypto = self.start_crypto
+        self.window_size = 100
+        self.n_features = 2
+        self.granularity = 900
+        self.episode_steps = 3600/self.granularity * 24 * 30 #One month episodes
+        
+        self.pair = 'ETH-USD'
+        self.begin = datetime.datetime(2017, 1, 1, 0, 0) # (YYYY/DD/MM/h/min)
+        self.end = datetime.datetime(2018, 1, 3, 0, 0)
+        
+        self.action_space = spaces.Box(low = -1.0, 
+                                       high = 1.0, 
+                                       shape = (1,), 
+                                       dtype = np.float32)
+        self.observation_space = spaces.Box(low = 0.0, 
+                                            high = np.finfo(np.float32).max, 
+                                            shape = (self.window_size, self.n_features,), 
+                                            dtype = np.float32)
+        self.start_index = None
+        self.steps = 0
+        self.historical_data = self.client.get_historical_data(self.begin, 
+                                                               self.end, 
+                                                               granularity = self.granularity, 
+                                                               pair = self.pair)
+        self._set_start_index()
+         self.portfolio_value = self._get_portfolio_value()
+            
+    def seed(self, seed=None):
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
+    
+    def step(self, action):
+        done = False
+        s = self.historical_data.loc[self.start_index + self.steps - self.window_size : self.start_index,
+                                     ["close","volume"]].values
+        current_value = self._get_portfolio_value()
+        r = (current_value - self.portfolio_value)/self.portfolio_value
+        self._set_portfolio(action)
+        
+        if (self.steps >= self.episode_steps):
+            done = True
+            
+        self.steps += 1
+        return s, r, done, {}
+    
+    def reset(self):
+        self._set_start_date()
+        self.fiat = self.start_fiat
+        self.crypto = self.start_crypto
+        self.step = 0
+    
+    def render(self, mode='human', close=False):
+        pass
+    
+    def _set_start_index(self):
+        self.start_index = randint(self.window_size, len(self.historical_data["time"])-self.episode_steps-1)
+        
+    def _set_portfolio(self, action):
+        a = action[0]
+        current_price = self.historical_data["close"][self.start_index + self.steps]
+        prev_fiat = self.fiat
+        prev_crypto = self.crypto
+        # TODO Get new portfolio from action
+
+        
+    def _get_portfolio_value(self):
+        current_price = self.historical_data["close"][self.start_index + self.steps]
         value = self.fiat + self.crypto * current_price
         return value
