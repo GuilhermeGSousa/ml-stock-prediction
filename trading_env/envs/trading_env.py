@@ -8,6 +8,9 @@ import numpy as np
 import pandas as pd
 from random import randint
 
+from os import getcwd
+from os.path import join, realpath, dirname, isfile
+
 import datetime
 
 class TradingEnv(gym.Env):
@@ -79,8 +82,8 @@ class TestTradingEnv(gym.Env):
         self.episode_steps = 3600/self.granularity * 24 * 30 #One month episodes
         
         self.pair = 'ETH-USD'
-        self.begin = datetime.datetime(2017, 1, 1, 0, 0) # (YYYY/DD/MM/h/min)
-        self.end = datetime.datetime(2018, 1, 3, 0, 0)
+        self.begin = datetime.datetime(2017, 1, 1, 0, 0) # (YYYY/MM/DD/h/min)
+        self.end = datetime.datetime(2018, 3, 1, 0, 0)
         
         self.action_space = spaces.Box(low = -1.0, 
                                        high = 1.0, 
@@ -92,12 +95,9 @@ class TestTradingEnv(gym.Env):
                                             dtype = np.float32)
         self.start_index = None
         self.steps = 0
-        self.historical_data = self.client.get_historical_data(self.begin, 
-                                                               self.end, 
-                                                               granularity = self.granularity, 
-                                                               pair = self.pair)
+        self._set_data()
         self._set_start_index()
-         self.portfolio_value = self._get_portfolio_value()
+        self.portfolio_value = self._get_portfolio_value()
             
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -105,7 +105,7 @@ class TestTradingEnv(gym.Env):
     
     def step(self, action):
         done = False
-        s = self.historical_data.loc[self.start_index + self.steps - self.window_size : self.start_index,
+        s = self.historical_data.loc[self.start_index + self.steps - self.window_size : self.start_index + self.steps,
                                      ["close","volume"]].values
         current_value = self._get_portfolio_value()
         r = (current_value - self.portfolio_value)/self.portfolio_value
@@ -134,10 +134,29 @@ class TestTradingEnv(gym.Env):
         current_price = self.historical_data["close"][self.start_index + self.steps]
         prev_fiat = self.fiat
         prev_crypto = self.crypto
-        # TODO Get new portfolio from action
-
+        if(a > 0):
+            self.crypto = a * 1/current_price * prev_fiat + prev_crypto
+            self.fiat = (1 - a) * prev_fiat
+        else:
+            a=-a
+            self.fiat = a * current_price * prev_crypto + prev_fiat
+            sefl.crypto = (1 - a) * prev_crypto
         
     def _get_portfolio_value(self):
         current_price = self.historical_data["close"][self.start_index + self.steps]
         value = self.fiat + self.crypto * current_price
         return value
+    def _set_data(self):
+        current_dir = realpath(__file__)
+        main_dir = dirname(dirname(dirname(current_dir)))
+        data_file = join(main_dir, "data", "train.pkl")
+        if not isfile(data_file):
+            print("Downloading historical data")
+            self.historical_data = self.client.get_historical_data(self.begin, 
+                                                               self.end, 
+                                                               granularity = self.granularity, 
+                                                               pair = self.pair)
+            self.historical_data.to_pickle(data_file)
+        else:
+            print("Loading historical data file")
+            self.historical_data = pd.read_pickle(data_file)
