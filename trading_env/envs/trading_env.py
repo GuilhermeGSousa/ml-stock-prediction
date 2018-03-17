@@ -108,7 +108,9 @@ class TestTradingEnv(gym.Env):
         s = self.historical_data.loc[self.start_index + self.steps - self.window_size : self.start_index + self.steps,
                                      ["close","volume"]].values
         current_value = self._get_portfolio_value()
+        
         r = (current_value - self.portfolio_value)/self.portfolio_value
+        self.portfolio_value = current_value
         self._set_portfolio(action)
         
         if (self.steps >= self.episode_steps):
@@ -118,10 +120,11 @@ class TestTradingEnv(gym.Env):
         return s, r, done, {}
     
     def reset(self):
-        self._set_start_date()
+        self._set_start_index()
         self.fiat = self.start_fiat
         self.crypto = self.start_crypto
         self.step = 0
+        self.portfolio_value = self._get_portfolio_value()
     
     def render(self, mode='human', close=False):
         pass
@@ -146,6 +149,7 @@ class TestTradingEnv(gym.Env):
         current_price = self.historical_data["close"][self.start_index + self.steps]
         value = self.fiat + self.crypto * current_price
         return value
+    
     def _set_data(self):
         current_dir = realpath(__file__)
         main_dir = dirname(dirname(dirname(current_dir)))
