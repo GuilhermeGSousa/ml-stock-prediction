@@ -123,7 +123,7 @@ class TestTradingEnv(gym.Env):
         self._set_start_index()
         self.fiat = self.start_fiat
         self.crypto = self.start_crypto
-        self.step = 0
+        self.steps = 0
         self.portfolio_value = self._get_portfolio_value()
     
     def render(self, mode='human', close=False):
