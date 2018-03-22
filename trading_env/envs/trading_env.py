@@ -105,7 +105,7 @@ class TestTradingEnv(gym.Env):
     
     def step(self, action):
         done = False
-        s = self.historical_data.loc[self.start_index + self.steps - self.window_size : self.start_index + self.steps,
+        s = self.historical_data.loc[self.start_index + self.steps - self.window_size + 1 : self.start_index + self.steps,
                                      ["close","volume"]].values
         current_value = self._get_portfolio_value()
         
@@ -119,13 +119,29 @@ class TestTradingEnv(gym.Env):
         self.steps += 1
         return s, r, done, {}
     
-    def reset(self):
-        self._set_start_index()
+    def reset(self, date=None):
+        """
+        If date is set to None a random period of one month is chosen for the episode,
+        otherwise the episode starts at the given date
+        Returns first state of simulation
+        """
+        if date is None:
+            self._set_start_index()
+        else:
+            tmp_index = next((i for i, x in self.historical_data.iterrows() if not x["time"] < date), None)
+            if tmp_index is not None and (tmp_index + self.episode_steps < self.historical_data.shape[0]):
+                self.start_index = tmp_index
+            else:
+                raise ValueError('Incorrect date entered.')
+                
         self.fiat = self.start_fiat
         self.crypto = self.start_crypto
         self.steps = 0
         self.portfolio_value = self._get_portfolio_value()
-    
+        s = self.historical_data.loc[self.start_index + self.steps - self.window_size + 1 : self.start_index + self.steps,
+                                     ["close","volume"]].values
+        return s
+        
     def render(self, mode='human', close=False):
         pass
     
