@@ -1,2 +1,2 @@
-from agent.continuous_agent import PolicyGradientAgent
-from agent import PolicyGradientAgent
+from agent.continuous_agent import StochasticPolicyGradientAgent
+from agent import StochasticPolicyGradientAgent
