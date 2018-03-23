@@ -140,6 +140,7 @@ class TestTradingEnv(gym.Env):
         self.portfolio_value = self._get_portfolio_value()
         s = self.historical_data.loc[self.start_index + self.steps - self.window_size + 1 : self.start_index + self.steps,
                                      ["close","volume"]].values
+        self.steps += 1
         return s
         
     def render(self, mode='human', close=False):
