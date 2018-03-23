@@ -70,7 +70,7 @@ class TestTradingEnv(gym.Env):
     
     def __init__(self):
         self.client = GdaxClient()
-        # TODO Make this configurable
+
         self.portfolio_value = 0
         self.start_fiat = 0
         self.start_crypto = 1
