@@ -129,8 +129,10 @@ class TestTradingEnv(gym.Env):
             self._set_start_index()
         else:
             tmp_index = next((i for i, x in self.historical_data.iterrows() if not x["time"] < date), None)
-            if tmp_index is not None and (tmp_index + self.episode_steps < self.historical_data.shape[0]):
-                self.start_index = tmp_index
+            if (tmp_index is not None and 
+                (tmp_index + self.episode_steps < self.historical_data.shape[0]) and 
+                (tmp_index >=self.window_size)):
+                    self.start_index = tmp_index
             else:
                 raise ValueError('Incorrect date entered.')
                 
@@ -160,7 +162,7 @@ class TestTradingEnv(gym.Env):
         else:
             a=-a
             self.fiat = a * current_price * prev_crypto + prev_fiat
-            sefl.crypto = (1 - a) * prev_crypto
+            self.crypto = (1 - a) * prev_crypto
         
     def _get_portfolio_value(self):
         current_price = self.historical_data["close"][self.start_index + self.steps]
