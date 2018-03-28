@@ -6,85 +6,90 @@ class StochasticPolicyGradientAgent():
     def __init__(self, env, learning_rate = 0.001, discount_rate = 0.99):
         self._optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate)
         self._sess = tf.Session()
+        self._env = env
         
         self._discount_rate = discount_rate
         self._state_buffer  = []
         self._reward_buffer = []
         self._action_buffer = []
         
-        states_dim = np.prod(np.array(env.observation_space.shape))
-        action_dim = np.prod(np.array(env.action_space.shape))
-        print(action_dim)
-        self._states = tf.placeholder(tf.float32, shape=(env.observation_space.shape), name="states")
-        states = tf.reshape(self._states, [1,states_dim])
+        self._phi_hidden = 128
+        self._sigma_hidden = 32
         
-        # Building mu Model
-        h1 = h2 = h3 = 128
+        state_dim = env.observation_space.shape[0] * env.observation_space.shape[1]
+        #state_dim=2
+        self._states = tf.placeholder(tf.float32, 
+                                      shape=(None, env.observation_space.shape[0], env.observation_space.shape[1]), 
+                                      name="states")
         
-        mu_hidden = tf.layers.dense(states, h1, 
-                                    activation = tf.nn.relu, 
-                                    name = 'dense', 
-                                    kernel_initializer=tf.random_normal_initializer)
-        mu_hidden_2 = tf.layers.dense(mu_hidden, h2, 
-                                      activation = tf.nn.relu, 
-                                      name = 'dense_1', 
-                                      kernel_initializer=tf.random_normal_initializer)
-        mu_hidden_3 = tf.layers.dense(mu_hidden_2, h3, 
-                                      activation = tf.nn.relu, 
-                                      name = 'dense_2', 
-                                      kernel_initializer=tf.random_normal_initializer)
-        self._mu = tf.layers.dense(mu_hidden_3, 1, 
-                                   activation = tf.tanh, 
-                                   name = 'mu', 
-                                   kernel_initializer=tf.random_normal_initializer)
-        self._mu = tf.squeeze(self._mu)
+        state = tf.layers.flatten(self._states)
+        init = tf.contrib.layers.xavier_initializer()
+    # policy parameters
+        self._mu_theta = tf.get_variable("mu_theta", [self._phi_hidden, 1],
+                                         initializer=init)
+        self._sigma_theta = tf.get_variable("sigma_theta", [self._sigma_hidden],
+                                                initializer=init)
         
-        # Building sigma Model
+        # neural featurizer parameters
+        self._W1 = tf.get_variable("W1", [state_dim, self._phi_hidden],
+                                   initializer=init)
+        self._b1 = tf.get_variable("b1", [self._phi_hidden],
+                                   initializer=tf.constant_initializer(0))
+        self._h1 = tf.nn.tanh(tf.matmul(state, self._W1) + self._b1)
+        self._W2 = tf.get_variable("W2", [self._phi_hidden, self._phi_hidden],
+                                   initializer=init)
+        self._b2 = tf.get_variable("b2", [self._phi_hidden],
+                                   initializer=tf.constant_initializer(0))
+        self._phi = tf.nn.tanh(tf.matmul(self._h1, self._W2) + self._b2)
         
-        sig_hidden = tf.layers.dense(states, h1, 
-                                     activation = tf.nn.relu, 
-                                     name = 'sigma_dense', 
-                                     kernel_initializer=tf.random_normal_initializer)
-        sig_hidden_2 = tf.layers.dense(sig_hidden, h2, 
-                                       activation = tf.nn.relu, 
-                                       name = 'sig_dense_1', 
-                                       kernel_initializer=tf.random_normal_initializer)
-        sig_hidden_3 = tf.layers.dense(sig_hidden_2, h3, 
-                                       activation = tf.nn.relu, 
-                                       name = 'sig_dense_2', 
-                                       kernel_initializer=tf.random_normal_initializer)
-        self._sigma = tf.layers.dense(sig_hidden_3, action_dim, 
-                                      activation = tf.nn.relu, 
-                                      name = 'sigma', 
-                                      kernel_initializer=tf.random_normal_initializer)
-        self._sigma = tf.nn.softplus(self._sigma) + 1e-5
-        self._sigma = tf.squeeze(self._sigma)
+        self._mu = tf.tanh(tf.matmul(self._phi, self._mu_theta))
         
-        self._normal_dist = tf.contrib.distributions.Normal(self._mu, self._sigma)
-        
-        self.action = self._normal_dist._sample_n(1)
-        self.action = tf.clip_by_value(self.action, env.action_space.low[0], env.action_space.high[0])
-        
+        self._sigma = tf.reduce_sum(self._sigma_theta)
+        self._sigma = tf.exp(self._sigma)
+            
         #Computing loss function
         
         self._discounted_rewards = tf.placeholder(tf.float32, (None, 1), name="discounted_rewards")
         self._taken_actions = tf.placeholder(tf.float32, (None, 1), name="taken_actions")
         
         #Is this reward function correct?
-        self._loss = -self._normal_dist.log_prob(self._taken_actions) * self._discounted_rewards
+        #self._loss = -tf.log(self._normal_dist.prob(self._taken_actions) + 1e-5) * self._discounted_rewards
+        self._loss = -tf.log(1e-5 + tf.sqrt(1/(2 * np.pi * self._sigma**2)) 
+                             * tf.exp(-(self._taken_actions - self._mu)**2/(2 * self._sigma**2))) * self._discounted_rewards
+        #self._loss = self._normal_dist.prob(self._taken_actions)
+        #self._train_op = self._optimizer.compute_gradients(self._loss, tf.trainable_variables())
         
         self._train_op = self._optimizer.minimize(self._loss)        
-        
         
         self._sess.run(tf.global_variables_initializer())
                 
     def act(self, state):
-        action = self._sess.run(self.action, feed_dict={
+        mu, sigma = self._sess.run([self._mu, self._sigma], feed_dict={
             self._states: state})
-        return action
+        action = np.random.normal(mu, sigma)
+        action = np.clip(action, self._env.action_space.low[0], self._env.action_space.high[0])
+        print("Sigma: {}, Mu: {}, Action: {}".format(sigma, mu, action))
+        return action[0]
     
-    def train(self):
+    def train(self): 
+        rewards = []
+        rewards.append(self._discount_rewards().tolist())
+        #rewards = np.array(rewards)
+        rewards = [[r] for r in rewards[0]]
+        norm_rewards = rewards
+        norm_rewards -= np.mean(rewards)
+        norm_rewards /= np.std(rewards)
+        feed_dict={
+            self._states: self._state_buffer,
+            self._discounted_rewards: rewards,
+            self._taken_actions: self._action_buffer}
         
+        loss = self._sess.run(self._loss, feed_dict=feed_dict)
+        
+        self._sess.run([self._train_op], feed_dict=feed_dict)
+        
+        print(loss)
+        #print(grad)
         #After applying gradients
         self._state_buffer  = []
         self._reward_buffer = []
@@ -102,3 +107,4 @@ class StochasticPolicyGradientAgent():
         for t in reversed(range(N)):
             r = r + self._reward_buffer[t] * self._discount_rate
             discounted_rewards[t] = r
+        return discounted_rewards
