@@ -55,4 +55,4 @@ reward = (current portfolio value - previous portfolio value)/previous portfolio
 
 ### The Live Environment
 
-This on is still under development
+This one is still under development
