@@ -106,13 +106,19 @@ class TestTradingEnv(gym.Env):
     def step(self, action):
         done = False
         self._set_portfolio(action)
+        previous_value = self._get_portfolio_value()
         #One timestep goes by...
         self.steps += 1
         s = self.historical_data.loc[self.start_index + self.steps - self.window_size + 1 : self.start_index + self.steps,
                                      ["close","volume"]].values
-        current_value = self._get_portfolio_value()
+        s = np.array(s)
         
-        r = (current_value - self.portfolio_value)/self.portfolio_value
+        #Normalizing to latest Closing price/Volume
+        s[:,0] /= s[-1,0]
+        s[:,1] /= s[-1,1]
+        current_value = self._get_portfolio_value()
+        r = (current_value - previous_value)/self.portfolio_value
+        
         self.portfolio_value = current_value
         
         if (self.steps >= self.episode_steps):
