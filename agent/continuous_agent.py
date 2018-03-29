@@ -2,7 +2,10 @@ import tensorflow as tf
 import numpy as np
 
 class StochasticPolicyGradientAgent():
-    
+    """
+    A Gaussian Policy Gradient based on lantunes's agent for MountainCarContinuous
+    github.com/lantunes/mountain-car-continuous
+    """
     def __init__(self, env, learning_rate = 0.001, discount_rate = 0.99):
         self._optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate)
         self._sess = tf.Session()
@@ -17,7 +20,7 @@ class StochasticPolicyGradientAgent():
         self._sigma_hidden = 32
         
         state_dim = env.observation_space.shape[0] * env.observation_space.shape[1]
-        #state_dim=2
+        
         self._states = tf.placeholder(tf.float32, 
                                       shape=(None, env.observation_space.shape[0], env.observation_space.shape[1]), 
                                       name="states")
@@ -52,12 +55,8 @@ class StochasticPolicyGradientAgent():
         self._discounted_rewards = tf.placeholder(tf.float32, (None, 1), name="discounted_rewards")
         self._taken_actions = tf.placeholder(tf.float32, (None, 1), name="taken_actions")
         
-        #Is this reward function correct?
-        #self._loss = -tf.log(self._normal_dist.prob(self._taken_actions) + 1e-5) * self._discounted_rewards
         self._loss = -tf.log(1e-5 + tf.sqrt(1/(2 * np.pi * self._sigma**2)) 
                              * tf.exp(-(self._taken_actions - self._mu)**2/(2 * self._sigma**2))) * self._discounted_rewards
-        #self._loss = self._normal_dist.prob(self._taken_actions)
-        #self._train_op = self._optimizer.compute_gradients(self._loss, tf.trainable_variables())
         
         self._train_op = self._optimizer.minimize(self._loss)        
         
@@ -74,7 +73,6 @@ class StochasticPolicyGradientAgent():
     def train(self): 
         rewards = []
         rewards.append(self._discount_rewards().tolist())
-        #rewards = np.array(rewards)
         rewards = [[r] for r in rewards[0]]
         norm_rewards = rewards
         norm_rewards -= np.mean(rewards)
@@ -89,7 +87,7 @@ class StochasticPolicyGradientAgent():
         self._sess.run([self._train_op], feed_dict=feed_dict)
         
         print(loss)
-        #print(grad)
+        
         #After applying gradients
         self._state_buffer  = []
         self._reward_buffer = []
