@@ -29,9 +29,10 @@ class StochasticPolicyGradientAgent():
         init = tf.contrib.layers.xavier_initializer()
         
         # neural featurizer parameters
-        h1 = 128
-        h2 = 64
-        h3 = 32
+        h1 = 256
+        h2 = 256
+        h3 = 128
+        h4 = 128
         
         mu_hidden = tf.layers.dense(self._states, h1, 
                                     activation = tf.sigmoid, 
@@ -45,11 +46,11 @@ class StochasticPolicyGradientAgent():
                                       activation = tf.sigmoid, 
                                       name = 'dense_2', 
                                       kernel_initializer=init)
-        mu_hidden_4 = tf.layers.dense(mu_hidden_3, h3, 
+        mu_hidden_4 = tf.layers.dense(mu_hidden_3, h4, 
                                       activation = tf.sigmoid, 
                                       name = 'dense_3', 
                                       kernel_initializer=init)
-        self._mu = tf.layers.dense(mu_hidden, 1,
+        self._mu = tf.layers.dense(mu_hidden_4, 1,
                                    activation = tf.tanh,
                                    name = 'mu', 
                                    kernel_initializer=init)
@@ -70,7 +71,11 @@ class StochasticPolicyGradientAgent():
                                        activation = tf.sigmoid, 
                                        name = 'sig_dense_2', 
                                        kernel_initializer=init)
-        self._sigma = tf.layers.dense(sig_hidden_3, 1, 
+        sig_hidden_4 = tf.layers.dense(sig_hidden_3, h4, 
+                                       activation = tf.sigmoid, 
+                                       name = 'sig_dense_3', 
+                                       kernel_initializer=init)
+        self._sigma = tf.layers.dense(sig_hidden_4, 1, 
                                       activation = tf.exp, 
                                       name = 'sigma', 
                                       kernel_initializer=init)
@@ -87,7 +92,7 @@ class StochasticPolicyGradientAgent():
         self._discounted_rewards = tf.placeholder(tf.float32, (None, 1), name="discounted_rewards")
         self._taken_actions = tf.placeholder(tf.float32, (None, 1), name="taken_actions")
         
-        self._loss = -tf.log(1e-10 + self._normal_dist.prob(self._taken_actions)) * self._discounted_rewards
+        self._loss = -tf.reduce_mean(tf.log(1e-10 + self._normal_dist.prob(self._taken_actions)) * self._discounted_rewards,0)
                                                             
         self._train_op = self._optimizer.minimize(self._loss)        
         
@@ -97,7 +102,7 @@ class StochasticPolicyGradientAgent():
         mu, sigma, action = self._sess.run([self._mu, self._sigma, self._action], feed_dict={
             self._states: state})
         action = np.clip(action, self._env.action_space.low[0], self._env.action_space.high[0])
-        print("Sigma: {}, Mu: {}, Action: {}".format(sigma, mu, action))
+        #print("Sigma: {}, Mu: {}, Action: {}".format(sigma, mu, action))
         
         return action
     
@@ -110,9 +115,9 @@ class StochasticPolicyGradientAgent():
         norm_rewards = [[r] for r in norm_rewards]
         feed_dict={
             self._states: self._state_buffer,
-            self._discounted_rewards: rewards,
+            self._discounted_rewards: norm_rewards,
             self._taken_actions: self._action_buffer}
-        #print(feed_dict)
+        
         self._sess.run([self._train_op], feed_dict=feed_dict)
         #print(self._sess.run(self._loss, feed_dict=feed_dict))
         

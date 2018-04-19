@@ -48,7 +48,7 @@ class TradingEnv(gym.Env):
         df = self.client.get_historical_data(start,end)
         s = np.transpose(np.array([df["close"],df["volume"]]))
         current_value = self._get_portfolio_value()
-        r = (current_value - self.portfolio_value)/self.portfolio_value
+        r = (current_value - self.portfolio_value)/self.portfolio_value - 1e-3
         self.portfolio_value = current_value
         return s, r
     
@@ -158,7 +158,7 @@ class TestTradingEnv(gym.Env):
         self.start_index = randint(self.window_size, len(self.historical_data["time"])-self.episode_steps-1)
         
     def _set_portfolio(self, action):
-        a = action[0]
+        a = action
         current_price = self.historical_data["close"][self.start_index + self.steps]
         prev_fiat = self.fiat
         prev_crypto = self.crypto
