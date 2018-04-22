@@ -48,7 +48,7 @@ class TradingEnv(gym.Env):
         df = self.client.get_historical_data(start,end)
         s = np.transpose(np.array([df["close"],df["volume"]]))
         current_value = self._get_portfolio_value()
-        r = (current_value - self.portfolio_value)/self.portfolio_value - 1e-3
+        r = (current_value - self.portfolio_value)/self.portfolio_value
         self.portfolio_value = current_value
         return s, r
     
@@ -117,7 +117,7 @@ class TestTradingEnv(gym.Env):
         s[:,0] /= s[-1,0]
         s[:,1] /= s[-1,1]
         current_value = self._get_portfolio_value()
-        r = (current_value - previous_value)/self.portfolio_value
+        r = ((current_value - previous_value)/self.portfolio_value)
         
         self.portfolio_value = current_value
         
