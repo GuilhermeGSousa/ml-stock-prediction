@@ -80,7 +80,7 @@ class StochasticPolicyGradientAgent():
                                       name = 'sigma', 
                                       kernel_initializer=init)
         self._sigma = tf.squeeze(self._sigma)
-        self._sigma = tf.add(self._sigma, self._sigma)
+        self._sigma = tf.add(self._sigma, 1e-5)
         
         #Sampling action from distribuition
         
