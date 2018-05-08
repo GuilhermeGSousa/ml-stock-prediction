@@ -5,11 +5,9 @@ class StochasticPolicyGradientAgent():
     """
     A Gaussian Policy Gradient based agent implementation
     """
-    def __init__(self, env, learning_rate = None, discount_rate = 0.99, batch_size = 1):
-        if learning_rate is None:
-            self._optimizer = tf.train.AdamOptimizer()
-        else:
-            self._optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate)
+    def __init__(self, env, learning_rate = 0.001, discount_rate = 0.99, batch_size = 1, quiet = True):
+        
+        self._optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate)
         self._sess = tf.Session()
         self._env = env
         self._batch_size = batch_size
@@ -17,7 +15,7 @@ class StochasticPolicyGradientAgent():
         self._state_buffer  = []
         self._reward_buffer = []
         self._action_buffer = []
-        
+        self._quiet = quiet
         
         state_dim = np.prod(np.array(env.observation_space.shape))
 
@@ -29,10 +27,9 @@ class StochasticPolicyGradientAgent():
         init = tf.contrib.layers.xavier_initializer()
         
         # neural featurizer parameters
-        h1 = 512
+        h1 = 256
         h2 = 256
         h3 = 128
-        h4 = 64
         
         mu_hidden = tf.layers.dense(self._states, h1, 
                                     activation = tf.nn.tanh, 
@@ -45,10 +42,6 @@ class StochasticPolicyGradientAgent():
         mu_hidden_3 = tf.layers.dense(mu_hidden_2, h3, 
                                       activation = tf.nn.tanh, 
                                       name = 'dense_2', 
-                                      kernel_initializer=init)
-        mu_hidden_4 = tf.layers.dense(mu_hidden_3, h4, 
-                                      activation = tf.nn.tanh, 
-                                      name = 'dense_3', 
                                       kernel_initializer=init)
         self._mu = tf.layers.dense(mu_hidden_3, 1,
                                    activation = tf.tanh,
@@ -71,10 +64,6 @@ class StochasticPolicyGradientAgent():
                                        activation = tf.sigmoid, 
                                        name = 'sig_dense_2', 
                                        kernel_initializer=init)
-        sig_hidden_4 = tf.layers.dense(sig_hidden_3, h4, 
-                                       activation = tf.sigmoid, 
-                                       name = 'sig_dense_3', 
-                                       kernel_initializer=init)
         self._sigma = tf.layers.dense(sig_hidden_3, 1, 
                                       activation = tf.exp, 
                                       name = 'sigma', 
@@ -84,7 +73,7 @@ class StochasticPolicyGradientAgent():
         
         #Sampling action from distribuition
         
-        self._normal_dist = tf.contrib.distributions.Normal(self._mu, 0.5)
+        self._normal_dist = tf.contrib.distributions.Normal(self._mu, self._sigma)
         self._action = self._normal_dist.sample()
         
         #Computing loss function
@@ -94,10 +83,7 @@ class StochasticPolicyGradientAgent():
         
         self._loss = -tf.reduce_mean(tf.log(1e-5 + self._normal_dist.prob(self._taken_actions)) * self._discounted_rewards,0)
          
-            
-        #gvs = self._optimizer.compute_gradients(self._loss)
-        #capped_gvs = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs]
-        #self._train_op = self._optimizer.apply_gradients(capped_gvs)
+
         self._train_op = self._optimizer.minimize(self._loss)        
         
         self._sess.run(tf.global_variables_initializer())
@@ -106,7 +92,9 @@ class StochasticPolicyGradientAgent():
         mu, sigma, action = self._sess.run([self._mu, self._sigma, self._action], feed_dict={
             self._states: state})
         action = np.clip(action, self._env.action_space.low[0], self._env.action_space.high[0])
-        #print("Sigma: {}, Mu: {}, Action: {}".format(sigma, mu, action))
+        
+        if not self._quiet:
+            print("Sigma: {}, Mu: {}, Action: {}".format(sigma, mu, action))
         
         return action
     
@@ -114,12 +102,12 @@ class StochasticPolicyGradientAgent():
         rewards = self._discount_rewards().tolist()
         rewards = [[r] for r in rewards]
         samples = []
-        for t in range(len(self._state_buffer)-1):
+        for t in range(len(self._state_buffer)):
             samples.append([self._state_buffer[t], rewards[t], self._action_buffer[t]])
+            
             
         np.random.shuffle(samples)
         batches = []
-        
         for i in range(0, len(samples), self._batch_size):
             batches.append(samples[i:i + self._batch_size])
             
@@ -133,7 +121,6 @@ class StochasticPolicyGradientAgent():
                 self._states: states_batch,
                 self._discounted_rewards: rewards_batch,
                 self._taken_actions: actions_batch}
-
             self._sess.run([self._train_op], feed_dict=feed_dict)
         
         #After applying gradients
