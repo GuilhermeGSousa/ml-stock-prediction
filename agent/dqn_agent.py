@@ -7,7 +7,7 @@ import math
 
 class DQNAgent():
     def __init__(self, env, gamma=0.99, 
-        epsilon=1.0, epsilon_min=0.00, epsilon_log_decay=0.99, 
+        epsilon=1.0, epsilon_min=0.01, epsilon_log_decay=0.99, 
         alpha=0.001, alpha_decay=0.01, batch_size=128, quiet=False):
         
         self.env = env
@@ -32,9 +32,13 @@ class DQNAgent():
     def store_step(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
 
-    def act(self, state, step):
-        epsilon = max(self.epsilon_min, min(self.epsilon, 1.0 - math.log10((step + 1) * self.epsilon_decay)))
-        return int(self.env.action_space.sample()) if (np.random.random() <= epsilon) else np.argmax(self.model.predict(state))
+    def act(self, state, step = None):
+        if step is not None:
+            epsilon = max(self.epsilon_min, min(self.epsilon, 1.0 - math.log10((step + 1) * self.epsilon_decay)))
+            return int(self.env.action_space.sample()) if (np.random.random() <= epsilon) else np.argmax(self.model.predict(state))
+            print("here")
+        else:
+            return np.argmax(self.model.predict(state))
 
     def train(self):
         batch_size = self._batch_size

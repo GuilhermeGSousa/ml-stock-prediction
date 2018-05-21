@@ -28,7 +28,7 @@ class StochasticPolicyGradientAgent():
         
         # neural featurizer parameters
         h1 = 256
-        h2 = 256
+        h2 = 128
         h3 = 128
         
         mu_hidden = tf.layers.dense(self._states, h1, 
@@ -100,6 +100,7 @@ class StochasticPolicyGradientAgent():
     
     def train(self): 
         rewards = self._discount_rewards().tolist()
+        #rewards -= np.mean(rewards)
         rewards = [[r] for r in rewards]
         samples = []
         for t in range(len(self._state_buffer)):
