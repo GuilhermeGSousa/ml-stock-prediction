@@ -1,14 +1,17 @@
 import tensorflow as tf
 import numpy as np
 import random
+import math 
 
 class DDPGAgent():
     def __init__(self, env, learning_rate = 0.001, discount_rate = 0.99, batch_size = 128, quiet = True):
+        
         self.actor = Actor(env, learning_rate = learning_rate, quiet = quiet)
-        self.critic = Critic(env, learning_rate = learning_rate, quiet = quiet)
+        self.critic = Critic(env, self.actor, learning_rate = learning_rate, quiet = quiet)
         
         self._batch_size = batch_size
         self._discount_rate = discount_rate
+        
         # Memory
         self._state_buffer  = []
         self._action_buffer = []
@@ -17,15 +20,16 @@ class DDPGAgent():
     
     def store_step(self, state, action, reward, next_state):
         self._state_buffer.append(state)
-        self._action_buffer.append(np.array([action]))
+        self._action_buffer.append(action)
         
-        next_action = self.actor.act([next_state])
-        q_next = self.critic.predict_q([next_state], [[next_action]])
+        next_action = self.actor.act_target([next_state])
+        q_next = self.critic.predict_target_q([next_state], [[next_action]])
         q_expected = reward + self._discount_rate * q_next
-        self._q_buffer.append(np.array(q_expected))
+        
+        self._q_buffer.append([q_expected])
     
     def train(self):
-        self._q_buffer = [[q] for q in self._q_buffer]
+        self._action_buffer = [[a] for a in self._action_buffer]
         samples = []
         for t in range(len(self._state_buffer)):
             samples.append([self._state_buffer[t], self._action_buffer[t], self._q_buffer[t]])
@@ -45,6 +49,9 @@ class DDPGAgent():
             action_grads_batch = [[a] for a in action_grads_batch]
             self.actor.train(states_batch, action_grads_batch)
         
+        self.actor.update_target_network()
+        self.critic.update_target_network()
+        
         #After applying gradients
         self._state_buffer  = []
         self._action_buffer = []
@@ -52,64 +59,88 @@ class DDPGAgent():
             
 class Actor():
 
-    def __init__(self, env, learning_rate = 0.001, quiet = True):
+    def __init__(self, env, learning_rate = 0.001, epsilon=1.0, epsilon_min=0.01, epsilon_log_decay=0.1, tau = 0.001, quiet = True):
         
         self._optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate)
         self._sess = tf.Session()
-        self._env = env
+        self.env = env
         self._quiet = quiet
+        self.epsilon = epsilon
+        self.epsilon_min = epsilon_min
+        self.epsilon_decay = epsilon_log_decay
+        self._tau = tau
         
-        state_dim = np.prod(np.array(env.observation_space.shape))
+        self.state_dim = np.prod(np.array(env.observation_space.shape))
+        
+        self.init = tf.contrib.layers.xavier_initializer()
 
-        self._state = tf.placeholder(tf.float32, 
-                                      shape=(None, state_dim), 
-                                      name="states")
- 
+        #Actor Network
         
-        init = tf.contrib.layers.xavier_initializer()
+        self._state, self.action = self.create_actor_network()
+        
+        self.network_params = tf.trainable_variables()
+        
+        #Target Network
+        
+        self._target_state, self.target_action = self.create_actor_network()
+        
+        self.target_network_params = tf.trainable_variables()[len(self.network_params):]
+        
+        self.update_target_network_params = [self.target_network_params[i].assign(tf.multiply(self.network_params[i],self._tau)
+                                                                                  + tf.multiply(self.target_network_params[i],
+                                                                                                1. - self._tau))
+                                             for i in range(len(self.target_network_params))]
+        
+        #Computing training op
+        
+        self.trainable_vars = tf.trainable_variables()
+        
+        self._action_gradients = tf.placeholder(tf.float32, [None, 1], name="action_grad")
+        
+        self._var_grads = tf.gradients(self.action, self.network_params, -self._action_gradients)
+        
+        self._train_op = self._optimizer.apply_gradients(zip(self._var_grads,self.network_params))      
+        
+        self._sess.run(tf.global_variables_initializer())
+
+    def create_actor_network(self):
         
         # neural featurizer parameters
         h1 = 256
         h2 = 128
         h3 = 128
         
-        action_hidden = tf.layers.dense(self._state, h1, 
-                                    activation = tf.nn.tanh, 
-                                    name = 'dense_0', 
-                                    kernel_initializer=init)
+        state = tf.placeholder(tf.float32,
+                                     shape=(None, self.state_dim))
+        
+        action_hidden = tf.layers.dense(state, h1, 
+                                    activation = tf.tanh,
+                                    kernel_initializer=self.init)
         action_hidden_2 = tf.layers.dense(action_hidden, h2, 
-                                      activation = tf.nn.tanh, 
-                                      name = 'dense_1', 
-                                      kernel_initializer=init)
+                                      activation = tf.tanh,
+                                      kernel_initializer=self.init)
         action_hidden_3 = tf.layers.dense(action_hidden_2, h3, 
-                                      activation = tf.nn.tanh, 
-                                      name = 'dense_2', 
-                                      kernel_initializer=init)
-        self._action = tf.layers.dense(action_hidden_3, 1,
+                                      activation = tf.tanh, 
+                                      kernel_initializer=self.init)
+        action = tf.layers.dense(action_hidden_3, 1,
                                    activation = tf.tanh,
-                                   name = 'action', 
-                                   kernel_initializer=init)
-        self._action = tf.squeeze(self._action)
+                                   kernel_initializer=self.init)
+        action = tf.squeeze(action)
         
-        #Computing training op
-        
-        self._trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-         
-        self._action_gradients = tf.placeholder(tf.float32, [None, 1], name="action_grad")
-        
-        self._var_grads = tf.gradients(self._action,self._trainable_vars,-self._action_gradients)
-        
-        self._train_op = self._optimizer.apply_gradients(zip(self._var_grads,self._trainable_vars))      
-        
-        self._sess.run(tf.global_variables_initializer())
-                
+        return state, action
+    
     def act(self, state):
-        
-        action = self._sess.run(self._action, feed_dict={
-            self._state: state})
 
+        action = self._sess.run(self.action, feed_dict={self._state: state})
+        
         if not self._quiet:
             print("Action: {}".format(action))
+        
+        return action
+
+    def act_target(self, state):
+
+        action = self._sess.run(self.target_action, feed_dict={self._target_state: state})
         
         return action
     
@@ -118,51 +149,40 @@ class Actor():
             self._state: states_batch,
             self._action_gradients: actions_grads_batch}
         self._sess.run([self._train_op], feed_dict=feed_dict)
-
+        
+    def update_target_network(self):
+        self._sess.run(self.update_target_network_params)
 
 class Critic():
 
-    def __init__(self, env, learning_rate = 0.001, quiet = True):
+    def __init__(self, env, actor, learning_rate = 0.001, tau = 0.001, quiet = True):
         
         self._optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate)
         self._sess = tf.Session()
         self._env = env
         self._quiet = quiet
-           
-        state_dim = np.prod(np.array(env.observation_space.shape))
-
-        self._state = tf.placeholder(tf.float32, 
-                                      shape=(None, state_dim), 
-                                      name="states")
-
-        self._action = tf.placeholder(tf.float32,shape=[None,1], name="action")
-            
-        init = tf.contrib.layers.xavier_initializer()
+        self._tau = tau
         
-        # neural featurizer parameters
-        h1 = 256
-        h2 = 128
-        h3 = 128
+        self._state_dim = np.prod(np.array(env.observation_space.shape))
         
+        self.init = tf.contrib.layers.xavier_initializer()
         
-        q_hidden = tf.layers.dense(tf.concat([self._state, self._action], 1), h1, 
-                                    activation = tf.nn.tanh, 
-                                    name = 'q_dense_0', 
-                                    kernel_initializer=init)
-        q_hidden_2 = tf.layers.dense(q_hidden, h2, 
-                                      activation = tf.nn.tanh, 
-                                      name = 'q_dense_1', 
-                                      kernel_initializer=init)
-        q_hidden_3 = tf.layers.dense(q_hidden_2, h3, 
-                                      activation = tf.nn.tanh, 
-                                      name = 'q_dense_2', 
-                                      kernel_initializer=init)
-        self._q = tf.layers.dense(q_hidden_3, 1,
-                                   activation = None,
-                                   name = 'q', 
-                                   kernel_initializer=init)
+        #Q function
         
-        self._q = tf.squeeze(self._q)
+        self._state, self._action, self.q = self.create_actor_network()
+        
+        self.network_params = tf.trainable_variables()[len(actor.trainable_vars):]
+        
+        #Setting up target function
+        
+        self._target_state, self._target_action, self.target_q = self.create_actor_network()
+        
+        self.target_network_params = tf.trainable_variables()[len(self.network_params) + len(actor.trainable_vars):]
+        
+        self.update_target_network_params = [self.target_network_params[i].assign(tf.multiply(self.network_params[i],self._tau)
+                                                                                  + tf.multiply(self.target_network_params[i],
+                                                                                                1. - self._tau))
+                                             for i in range(len(self.target_network_params))]
         
         #Computing training op
         
@@ -170,19 +190,56 @@ class Critic():
         
         self._q_expected = tf.placeholder(tf.float32,shape=[None,1], name="q_expected")
         
-        self._loss = tf.losses.mean_squared_error(self._q_expected,self._q)
+        self._loss = tf.losses.mean_squared_error(self._q_expected,self.q)
         
         self._train_op = self._optimizer.minimize(self._loss)
         
-        self._action_gradients = tf.squeeze(tf.gradients(self._q ,self._action))
+        self._action_gradients = tf.squeeze(tf.gradients(self.q ,self._action))
                 
         self._sess.run(tf.global_variables_initializer())
-                
+        
+    def create_actor_network(self):
+        
+        state = tf.placeholder(tf.float32,
+                               shape=(None, self._state_dim))
+
+        action = tf.placeholder(tf.float32,shape=[None,1])
+        
+        # neural featurizer parameters
+        h1 = 256
+        h2 = 128
+        h3 = 128
+        
+        
+        q_hidden = tf.layers.dense(tf.concat([state, action], 1), h1, 
+                                    activation = tf.tanh,
+                                    kernel_initializer=self.init)
+        q_hidden_2 = tf.layers.dense(q_hidden, h2, 
+                                      activation = tf.tanh,
+                                      kernel_initializer=self.init)
+        q_hidden_3 = tf.layers.dense(q_hidden_2, h3, 
+                                      activation = tf.tanh,
+                                      kernel_initializer=self.init)
+        q = tf.layers.dense(q_hidden_3, 1,
+                            activation = None,
+                            kernel_initializer=self.init)
+        
+        q = tf.squeeze(q)
+        
+        return state, action, q
+    
     def predict_q(self, state, action):
         
-        q = self._sess.run(self._q, feed_dict={
+        q = self._sess.run(self.q, feed_dict={
             self._state: state,
             self._action: action})
+        return q
+    
+    def predict_target_q(self, state, action):
+        
+        q = self._sess.run(self.target_q, feed_dict={
+            self._target_state: state,
+            self._target_action: action})
         return q
     
     def get_action_grads(self, state, action):
@@ -199,4 +256,6 @@ class Critic():
 
         self._sess.run([self._train_op], feed_dict=feed_dict)
         
+    def update_target_network(self):
+        self._sess.run(self.update_target_network_params)        
         
