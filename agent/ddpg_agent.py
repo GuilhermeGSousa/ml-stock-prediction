@@ -4,10 +4,13 @@ import random
 import math 
 
 class DDPGAgent():
-    def __init__(self, env, learning_rate = 0.001, discount_rate = 0.99, batch_size = 128, quiet = True):
+    def __init__(self, env, discount_rate = 0.99, batch_size = 128, tau = 0.0001, 
+                 epsilon=1.0, epsilon_min=0.01, epsilon_log_decay=0.1, 
+                 actor_lr = 1e-5, critic_lr = 1e-4, quiet = True):
         
-        self.actor = Actor(env, learning_rate = learning_rate, quiet = quiet)
-        self.critic = Critic(env, self.actor, learning_rate = learning_rate, quiet = quiet)
+        self.actor = Actor(env, learning_rate = actor_lr, quiet = quiet, 
+                           epsilon=epsilon, epsilon_min=epsilon_min, epsilon_log_decay=epsilon_log_decay, tau = tau)
+        self.critic = Critic(env, self.actor, learning_rate = critic_lr, quiet = quiet, tau = tau)
         
         self._batch_size = batch_size
         self._discount_rate = discount_rate
@@ -39,15 +42,22 @@ class DDPGAgent():
         for i in range(0, len(samples), self._batch_size):
             batches.append(samples[i:i + self._batch_size])
             
+        action_grads_batch = []
+        
         for batch in batches:
             states_batch = [row[0] for row in batch]
             actions_batch = [row[1] for row in batch]
             q_batch = [row[2] for row in batch]
             
             self.critic.train(states_batch, q_batch, actions_batch)
-            action_grads_batch = self.critic.get_action_grads(states_batch, actions_batch)
-            action_grads_batch = [[a] for a in action_grads_batch]
-            self.actor.train(states_batch, action_grads_batch)
+            grads = self.critic.get_action_grads(states_batch, actions_batch)
+            grads = [[a] for a in grads]
+            action_grads_batch.append(grads)
+
+        
+        for i in range(len(batches)):
+            states_batch = [row[0] for row in batches[i]]            
+            self.actor.train(states_batch, action_grads_batch[i])
         
         self.actor.update_target_network()
         self.critic.update_target_network()
@@ -59,7 +69,7 @@ class DDPGAgent():
             
 class Actor():
 
-    def __init__(self, env, learning_rate = 0.001, epsilon=1.0, epsilon_min=0.01, epsilon_log_decay=0.1, tau = 0.001, quiet = True):
+    def __init__(self, env, learning_rate = 0.0001, epsilon=1.0, epsilon_min=0.01, epsilon_log_decay=0.1, tau = 0.001, quiet = True):
         
         self._optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate)
         self._sess = tf.Session()
@@ -75,16 +85,18 @@ class Actor():
         self.init = tf.contrib.layers.xavier_initializer()
 
         #Actor Network
+        with tf.variable_scope('actor') as actor_vs:
+            self._state, self.action = self.create_actor_network()
         
-        self._state, self.action = self.create_actor_network()
-        
-        self.network_params = tf.trainable_variables()
+        self.network_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=actor_vs.name)
         
         #Target Network
+        with tf.variable_scope('actor_target') as actor_target_vs:
+            self._target_state, self.target_action = self.create_actor_network()
         
-        self._target_state, self.target_action = self.create_actor_network()
+        self.target_network_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=actor_target_vs.name)
         
-        self.target_network_params = tf.trainable_variables()[len(self.network_params):]
+        
         
         self.update_target_network_params = [self.target_network_params[i].assign(tf.multiply(self.network_params[i],self._tau)
                                                                                   + tf.multiply(self.target_network_params[i],
@@ -101,8 +113,11 @@ class Actor():
         
         self._train_op = self._optimizer.apply_gradients(zip(self._var_grads,self.network_params))      
         
+        #Initializing
         self._sess.run(tf.global_variables_initializer())
-
+        self._sess.run([self.target_network_params[i].assign(self.network_params[i]) 
+                        for i in range(len(self.target_network_params))])
+        
     def create_actor_network(self):
         
         # neural featurizer parameters
@@ -129,9 +144,13 @@ class Actor():
         
         return state, action
     
-    def act(self, state):
-
-        action = self._sess.run(self.action, feed_dict={self._state: state})
+    def act(self, state,  step = None):
+        
+        if step is not None:
+            epsilon = max(self.epsilon_min, min(self.epsilon, 1.0 - math.log10((step + 1) * self.epsilon_decay)))
+            action = self.env.action_space.sample()[0].item() if (np.random.random() <= epsilon) else self._sess.run(self.action, feed_dict={self._state: state})
+        else:
+            action = self._sess.run(self.action, feed_dict={self._state: state})
         
         if not self._quiet:
             print("Action: {}".format(action))
@@ -168,16 +187,16 @@ class Critic():
         self.init = tf.contrib.layers.xavier_initializer()
         
         #Q function
+        with tf.variable_scope('q') as q_vs:
+            self._state, self._action, self.q = self.create_actor_network()
         
-        self._state, self._action, self.q = self.create_actor_network()
-        
-        self.network_params = tf.trainable_variables()[len(actor.trainable_vars):]
+        self.network_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=q_vs.name)
         
         #Setting up target function
+        with tf.variable_scope('q_target') as q_target_vs:
+            self._target_state, self._target_action, self.target_q = self.create_actor_network()
         
-        self._target_state, self._target_action, self.target_q = self.create_actor_network()
-        
-        self.target_network_params = tf.trainable_variables()[len(self.network_params) + len(actor.trainable_vars):]
+        self.target_network_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=q_target_vs.name)
         
         self.update_target_network_params = [self.target_network_params[i].assign(tf.multiply(self.network_params[i],self._tau)
                                                                                   + tf.multiply(self.target_network_params[i],
@@ -186,8 +205,6 @@ class Critic():
         
         #Computing training op
         
-        self._trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-        
         self._q_expected = tf.placeholder(tf.float32,shape=[None,1], name="q_expected")
         
         self._loss = tf.losses.mean_squared_error(self._q_expected,self.q)
@@ -195,8 +212,12 @@ class Critic():
         self._train_op = self._optimizer.minimize(self._loss)
         
         self._action_gradients = tf.squeeze(tf.gradients(self.q ,self._action))
-                
+        
+        #Initializing
         self._sess.run(tf.global_variables_initializer())
+        
+        self._sess.run([self.target_network_params[i].assign(self.network_params[i]) 
+                        for i in range(len(self.target_network_params))])
         
     def create_actor_network(self):
         
@@ -212,13 +233,13 @@ class Critic():
         
         
         q_hidden = tf.layers.dense(tf.concat([state, action], 1), h1, 
-                                    activation = tf.tanh,
+                                    activation = tf.nn.relu,
                                     kernel_initializer=self.init)
         q_hidden_2 = tf.layers.dense(q_hidden, h2, 
-                                      activation = tf.tanh,
+                                      activation = tf.nn.relu,
                                       kernel_initializer=self.init)
         q_hidden_3 = tf.layers.dense(q_hidden_2, h3, 
-                                      activation = tf.tanh,
+                                      activation = tf.nn.relu,
                                       kernel_initializer=self.init)
         q = tf.layers.dense(q_hidden_3, 1,
                             activation = None,
