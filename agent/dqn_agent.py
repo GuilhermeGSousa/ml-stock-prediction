@@ -7,8 +7,8 @@ import math
 
 class DQNAgent():
     def __init__(self, env, gamma=0.99, 
-        epsilon=1.0, epsilon_min=0.01, epsilon_log_decay=0.99, 
-        alpha=0.001, alpha_decay=0.01, batch_size=128, quiet=False):
+        epsilon=1.0, epsilon_min=0.01, epsilon_log_decay=0.999, 
+        alpha=1e-4, alpha_decay=0.001, batch_size=128, quiet=False):
         
         self.env = env
         self.memory = []

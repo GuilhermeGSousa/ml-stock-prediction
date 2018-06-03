@@ -4,7 +4,7 @@ import random
 import math 
 
 class DDPGAgent():
-    def __init__(self, env, discount_rate = 0.99, batch_size = 128, tau = 0.0001, 
+    def __init__(self, env, discount_rate = 0.99, batch_size = 128, tau = 0.001, 
                  epsilon=1.0, epsilon_min=0.01, epsilon_log_decay=0.1, 
                  actor_lr = 1e-5, critic_lr = 1e-4, quiet = True):
         
@@ -41,8 +41,6 @@ class DDPGAgent():
         
         for i in range(0, len(samples), self._batch_size):
             batches.append(samples[i:i + self._batch_size])
-            
-        action_grads_batch = []
         
         for batch in batches:
             states_batch = [row[0] for row in batch]
@@ -50,15 +48,10 @@ class DDPGAgent():
             q_batch = [row[2] for row in batch]
             
             self.critic.train(states_batch, q_batch, actions_batch)
-            grads = self.critic.get_action_grads(states_batch, actions_batch)
-            grads = [[a] for a in grads]
-            action_grads_batch.append(grads)
-
-        
-        for i in range(len(batches)):
-            states_batch = [row[0] for row in batches[i]]            
-            self.actor.train(states_batch, action_grads_batch[i])
-        
+            action_grads_batch = self.critic.get_action_grads(states_batch, actions_batch)
+            action_grads_batch = [[a] for a in action_grads_batch]
+            self.actor.train(states_batch, action_grads_batch)
+            
         self.actor.update_target_network()
         self.critic.update_target_network()
         
