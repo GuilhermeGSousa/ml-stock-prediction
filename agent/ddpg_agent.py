@@ -21,14 +21,16 @@ class DDPGAgent():
         self._q_buffer = []
         
     
-    def store_step(self, state, action, reward, next_state):
+    def store_step(self, state, action, reward, next_state, done):
         self._state_buffer.append(state)
         self._action_buffer.append(action)
         
         next_action = self.actor.act_target([next_state])
-        q_next = self.critic.predict_target_q([next_state], [[next_action]])
-        q_expected = reward + self._discount_rate * q_next
-        
+        if not done:
+            q_next = self.critic.predict_target_q([next_state], [[next_action]])
+            q_expected = reward + self._discount_rate * q_next
+        else:
+            q_expected = reward
         self._q_buffer.append([q_expected])
     
     def train(self):
